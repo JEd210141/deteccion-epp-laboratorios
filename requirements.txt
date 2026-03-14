@@ -1,0 +1,7 @@
+ipykernel
+roboflow
+albumentations
+seaborn
+streamlit
+python-dotenv
+scipy

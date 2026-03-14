@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./app/backend
+    container_name: epp-backend
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - ./app/backend/models:/app/backend/models
+    working_dir: /app
+    shm_size: '8gb'
+    ipc: host
+    ports:
+      - "5000:5000"
+    networks:
+      - epp-network
+    restart: unless-stopped
+
+  frontend:
+    build: ./app/frontend
+    container_name: epp-frontend
+    environment:
+      - API_URL=http://backend:5000
+    privileged: true
+    devices:
+    - /dev/video0:/dev/video0
+    - /dev/video1:/dev/video1
+    volumes:
+      - ./data:/workspaces/deteccioneppalimentarias/data
+    working_dir: /app
+    ports:
+      - "8501:8501"
+    depends_on:
+      - backend
+    networks:
+      - epp-network
+    restart: unless-stopped
+    device_cgroup_rules:
+      - 'c 189:* rmw'
+
+networks:
+  epp-network:
+    driver: bridge   
