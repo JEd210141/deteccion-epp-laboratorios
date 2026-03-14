@@ -1,0 +1,91 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environments
+.env
+.venv
+env/
+epp-env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Virtual Environment for Frontend (if any)
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb
+
+# Project specific - DATA and MODELS
+/data/
+data_person/
+/models/
+/notebooks/
+/src/
+!models/yolo26m.pt
+!models/final/epp_production/model_epp_v26.pt
+!/model_epp_v26.pt
+*model_epp_v26.pt
+*.html
+weights/
+images/
+labels/
+
+# Docker specific (optional, but safe)
+.dockerignore
+**/.dockerignore
+/.devcontainer/
+
+# Logs and databases
+*.log
+*.sql
+*.sqlite
+db.sqlite3
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Backend specific (if you have a virtual env inside)
+backend/__pycache__/
+backend/*.pyc
+backend/.env
+
+# Frontend specific
+frontend/__pycache__/
+frontend/*.pyc
+frontend/.env
+
+# Excluir archivos de entorno específicos de cada desarrollador (opcional)
+docker-compose.override.yml
