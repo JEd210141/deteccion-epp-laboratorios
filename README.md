@@ -2,48 +2,71 @@
 
 [![Licencia: CC BY-NC-ND 4.0](https://img.shields.io/badge/Licencia-CC_BY--NC--ND_4.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-nd/4.0/deed.es)
 
+![Base YOLO26](https://img.shields.io/badge/Base_Model-YOLO26-FF6B35?style=flat&logo=YOLO&logoColor=white&colorA=003366&colorB=FF6B35)
+![EPP Model v1.0](https://img.shields.io/badge/EPP_Model-v1.0-003366?style=flat&logo=pytorch&logoColor=white&colorA=003366&colorB=EE4C2C)            
+
 Este repositorio contiene el código fuente y la documentación del proyecto de residencia profesional "Estudio Preliminar para Sistema de Detección Inteligente EPP mediante el uso de IA en Laboratorios". El objetivo es desarrollar y evaluar la viabilidad de un sistema de visión por computadora para la detección en tiempo real del uso correcto de Equipos de Protección Personal (EPP) en laboratorios de industrias alimentarias.
 
 ## Descripción del Proyecto
+El sistema está compuesto por tres servicios principales orquestados con Docker Compose:
 
-El sistema se compone de dos partes principales:
+* **Backend (Flask API):** Contiene los modelos de IA (`yolo26m.pt` para personas y `modeloepp_v1.pt` para EPP) y expone múltiples endpoints: `/api/detect` para inferencia, un panel de control web interactivo (HTML/JS) en la raíz, y un CRUD completo para gestionar la base de datos MariaDB.
+* **Base de datos (MariaDB):** Almacena todas las detecciones, sesiones, alertas y métricas de entrenamiento. Se inicializa automáticamente con el esquema proporcionado.
+* **Frontend Streamlit (opcional):** Interfaz alternativa de captura en tiempo real, pensada para la fase de recolección de datos durante la residencia. No es necesaria para el funcionamiento del sistema principal.
 
-*   **Backend (Flask API):** Contiene los modelos de IA (`yolo26m.pt` para personas y `model_epp_v26.pt` para EPP) y expone un endpoint `/detect` para realizar la inferencia.
-*   **Frontend (Streamlit):** Proporciona una interfaz de usuario para conectarse a una cámara, visualizar el video en tiempo real con las detecciones superpuestas y capturar imágenes para aumentar el dataset.
+La aplicación web principal (`http://localhost:5000`) permite:
+
+* Visualizar el video de la cámara en tiempo real con detecciones superpuestas.
+* Subir imágenes para análisis.
+* Consultar el historial de detecciones con filtros.
+* Ver gráficos de métricas de entrenamiento.
+* Administrar la configuración de los modelos.
 
 ## Tecnologías Principales
-
-*   Python 3.11
-*   Ultralytics YOLO (v26)
-*   Flask
-*   Streamlit
-*   Docker & Docker Compose
-*   OpenCV
+* Python 3.11
+* Ultralytics YOLO (v26)
+* Flask (backend y API)
+* MariaDB (base de datos)
+* HTML5 / JavaScript / Chart.js (frontend web)
+* Streamlit (interfaz opcional de captura)
+* Docker & Docker Compose
+* OpenCV
 
 ## Estructura del Proyecto
 
 ```
 .
 ├── app/
-│   ├── backend/          # Código de la API Flask
+│   ├── backend/                    # Backend Flask + web
 │   │   ├── Dockerfile
 │   │   ├── requirements.txt
-│   │   └── app.py
-│   └── frontend/         # Código de la interfaz Streamlit
-│       ├── Dockerfile
-│       ├── requirements.txt
-│       └── dashboard_captura.py
-├── data/                 # Datasets e imágenes (ignorado por git)
-├── models/               # Modelos entrenados (ignorado por git, excepto los `.pt` finales)
-│   ├── yolo26m.pt
-│   └── final/
-│       └── epp_production/
-│           └── model_epp_v26.pt
-├── notebooks/            # Notebooks de Jupyter para análisis y entrenamiento
-├── .devcontainer/        # Configuración del entorno de desarrollo en contenedor
+│   │   ├── app.py                  # Aplicación principal
+│   │   ├── models/                  # Modelos YOLO (yolo26m.pt, modeloepp_v1.pt)
+│   │   ├── templates/                # Plantillas HTML
+│   │   │   ├── index.html
+│   │   │   └── database.html
+│   │   ├── static/                    # Archivos estáticos (CSS, JS)
+│   │   │   ├── css/
+│   │   │   │   ├── style.css
+│   │   │   │   └── database.css
+│   │   │   └── js/
+│   │   │       ├── utils.js
+│   │   │       ├── dashboard.js
+│   │   │       └── crud.js
+│   │   └── ... (otros archivos)
+│   ├── frontend/                   # (Opcional) Interfaz Streamlit
+│   │   ├── Dockerfile
+│   │   ├── requirements.txt
+│   │   └── dashboard_captura.py
+│   └── db/                          # Scripts de inicialización de la base de datos
+│       └── init/
+│           └── setup_db.sql
+├── data/                            # Datasets e imágenes (ignorado por git)
+├── notebooks/                        # Notebooks de Jupyter
+├── .devcontainer/                    # Configuración de desarrollo en contenedor
 │   └── devcontainer.json
 ├── .gitignore
-├── docker-compose.yml    # Orquestador de servicios (backend y frontend)
+├── docker-compose.yml                # Orquestador de servicios
 ├── LICENSE
 └── README.md
 ```
@@ -52,8 +75,8 @@ El sistema se compone de dos partes principales:
 
 ### Prerrequisitos
 
-*   Docker y Docker Compose instalados en tu sistema.
-*   Visual Studio Code con las extensiones recomendadas (ver más abajo).
+* Docker y Docker Compose instalados en tu sistema.
+* (Opcional) Visual Studio Code con las extensiones recomendadas (ver más abajo) si deseas usar el devcontainer.
 
 ### Pasos para ejecutar el proyecto
 
@@ -62,20 +85,49 @@ El sistema se compone de dos partes principales:
     git clone <url_de_tu_repositorio>
     cd deteccioneppalimentarias
     ```
-2.  **Abre el proyecto en VSCode.**
-3.  **Vuelve a abrir en el contenedor:** Cuando VSCode detecte la carpeta `.devcontainer`, te preguntará si quieres "Reabrir en el contenedor". Acepta. Esto construirá el entorno de desarrollo unificado.
-4.  **Construye y levanta los servicios:**
-    Desde una terminal dentro del contenedor (o en tu máquina, con Docker corriendo), ejecuta en la raíz del proyecto:
+
+2. **Prepara los modelos YOLO**
+   
+   Coloca los archivos `yolo26m.pt` y `modeloepp_v1.pt` en `app/backend/models/`. Si no los tienes, puedes descargarlos o entrenarlos según la documentación de Ultralytics.
+
+3. **Construye y levanta los servicios con Docker Compose:**
     ```bash
     docker-compose up --build
     ```
-5.  **Accede a la aplicación:**
-    *   **Frontend (Interfaz de usuario):** `http://localhost:8501`
-    *   **Backend (API):** `http://localhost:5000` (el endpoint de detección es `POST /detect`)
+    Esto iniciará:
+    * La base de datos MariaDB en `localhost:3307`
+    * El backend Flask en `http://localhost:5000`
+    * (Opcional) El frontend Streamlit en `http://localhost:8501`
 
-### Extensiones de VSCode Recomendadas
+4. **Accede a la aplicación:**
+   * **Panel principal:** `http://localhost:5000`
+   * **Gestión de base de datos:** `http://localhost:5000/database`
+   * **API de detección:** `POST` `http://localhost:5000/api/detect` (enviando una * imagen con el campo `image`)
+    * **Streamlit (si está habilitado):** `http://localhost:8501`
 
-Para una experiencia de desarrollo óptima, se recomienda instalar las extensiones listadas en el archivo `.devcontainer/devcontainer.json` (Python, Jupyter) y añadir manualmente Docker, GitLens, Thunder Client, etc., para un flujo de trabajo más completo.
+5. **Detener los servicios:**
+    ```bash
+    docker-compose down
+    ```
+    Si deseas eliminar también los volúmenes de la base de datos (borrar todos los datos), añade `-v`.
+
+## Variables de entorno
+
+Las variables de entorno se encuentran en el archivo `.env` en la raiz del proyecto. Las variables disponibles son:
+* `MARIADB_ROOT_PASSWORD`
+* `MARIADB_USER`
+* `MARIADB_PASSWORD`
+* `FLASK_ENV`
+    * Dentro del archivo `.env` deben de definirse las credenciales a usar.
+
+## Extensiones de VSCode Recomendadas
+
+Para un desarrollo más cómodo, se recomienda instalar:
+* **Dev Containers** (`ms-vscode-remote.remote-containers`) – para trabajar dentro del contenedor.
+* **Python** (`ms-python.python`) y Pylance.
+* **Docker** (`ms-azuretools.vscode-docker`).
+* **GitLens** (`eamodio.gitlens`) – para visualizar el historial.
+* **Thunder Client** (`rangav.vscode-thunder-client`) – para probar la API.
 
 ## Licencia
 
