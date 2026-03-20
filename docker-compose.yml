@@ -1,22 +1,63 @@
-version: '3.8'
-
 services:
+  db:
+    image: mariadb:10.11
+    container_name: epp-db
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      MARIADB_DATABASE:      epp_db
+      MARIADB_USER:          ${MARIADB_USER}
+      MARIADB_PASSWORD:      ${MARIADB_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./app/db/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "3307:3306"
+    networks:
+      - epp-network
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   backend:
     build: ./app/backend
     container_name: epp-backend
+    restart: unless-stopped
     runtime: nvidia
     environment:
-      - NVIDIA_VISIBLE_DEVICES=all
+      NVIDIA_VISIBLE_DEVICES: all
+      DB_HOST:     db
+      DB_PORT:     3306
+      DB_USER:     ${MARIADB_USER:-epp_user}
+      DB_PASSWORD: ${MARIADB_PASSWORD}
+      DB_NAME:     epp_db
+      FLASK_ENV:   ${FLASK_ENV}
     volumes:
-      - ./app/backend/models:/app/backend/models
-    working_dir: /app
-    shm_size: '8gb'
-    ipc: host
+      - ./app/backend/templates:/app/templates
+      - ./app/backend/static:/app/static
+      - ./app/backend/app.py:/app/app.py
+      - ./app/backend/models:/app/models
+      - ./app/backend/static/uploads:/app/static/uploads
+      - ./app/backend/static/outputs:/app/static/outputs
+    devices:
+      - /dev/video0:/dev/video0
+      - /dev/video1:/dev/video1
     ports:
       - "5000:5000"
+    depends_on:
+      db:
+        condition: service_healthy
     networks:
       - epp-network
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/stats', timeout=4)"]
+      interval: 15s
+      timeout: 8s
+      retries: 5
+      start_period: 60s
 
   frontend:
     build: ./app/frontend
@@ -28,17 +69,24 @@ services:
     - /dev/video0:/dev/video0
     - /dev/video1:/dev/video1
     volumes:
+      - ./app/frontend/dashboard_captura.py:/app/dashboard_captura.py
       - ./data:/workspaces/deteccioneppalimentarias/data
+      - ./notebooks:/workspaces/deteccioneppalimentarias/notebooks
     working_dir: /app
     ports:
       - "8501:8501"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - epp-network
     restart: unless-stopped
     device_cgroup_rules:
-      - 'c 189:* rmw'
+      - 'c 81:* rmw'   # video4linux
+      - 'c 189:* rmw'  # usb devices
+
+volumes:
+  db_data:
 
 networks:
   epp-network:
