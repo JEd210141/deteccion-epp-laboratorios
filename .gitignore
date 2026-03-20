@@ -45,9 +45,11 @@ node_modules/
 # Project specific - DATA and MODELS
 /data/
 data_person/
+/evaluation_results/
 /models/
 /notebooks/
 /src/
+/training_results/
 !models/yolo26m.pt
 !models/final/epp_production/model_epp_v26.pt
 !/model_epp_v26.pt
