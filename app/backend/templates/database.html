@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>EPP Lab — MariaDB Manager</title>
+<!-- database.css incluye sus propias fuentes (JetBrains Mono + Syne) -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/database.css') }}"/>
+<!-- utils.js inicializa el tema ANTES de renderizar -->
+<script src="{{ url_for('static', filename='js/utils.js') }}"></script>
+</head>
+<body class="db-root">
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     NAVBAR — navy MariaDB
+══════════════════════════════════════════════════════════════════════════ -->
+<nav class="db-navbar">
+  <!-- Logo MariaDB -->
+  <div class="db-logo">
+    <div class="db-logo-icon">DB</div>
+    <div class="db-logo-text">MariaDB<em>mgr</em></div>
+  </div>
+
+  <div class="db-nav-sep"></div>
+
+  <!-- Breadcrumb SQL dinámico -->
+  <div class="db-nav-path" id="sqlBreadcrumb">
+    <span class="op">SELECT</span>
+    <span>*</span>
+    <span class="op">FROM</span>
+    <span class="seg">detections</span>
+  </div>
+
+  <div class="db-nav-right">
+    <!-- Estado de conexión -->
+    <span class="db-nav-pill conn">● localhost:3307</span>
+    <span class="db-nav-pill">epp_db</span>
+
+    <!-- Toggle tema -->
+    <button class="db-theme-btn" onclick="EPP.theme.toggle()" data-theme-icon title="Cambiar tema">☀</button>
+
+    <!-- Volver al dashboard -->
+    <a href="/" class="db-nav-btn">← Dashboard</a>
+  </div>
+</nav>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     SIDEBAR — explorador de tablas
+══════════════════════════════════════════════════════════════════════════ -->
+<aside class="db-sidebar">
+
+  <!-- Info de conexión -->
+  <div class="db-conn-info">
+    <div class="db-conn-host">localhost:3307 / epp_db</div>
+    <div class="db-conn-detail">MariaDB 10.11 · utf8mb4 · InnoDB</div>
+  </div>
+
+  <div class="db-side-lbl">Tablas</div>
+
+  <div class="db-side-item active" data-tabla="detections"
+       onclick="switchTabla('detections', this)">
+    <svg class="db-tbl-icon" viewBox="0 0 14 14"><rect width="14" height="14" rx="1"/><line x1="0" y1="5" x2="14" y2="5"/><line x1="0" y1="9" x2="14" y2="9"/><line x1="5" y1="0" x2="5" y2="14"/></svg>
+    detections
+    <span class="db-row-count">—</span>
+  </div>
+
+  <div class="db-side-item" data-tabla="sessions"
+       onclick="switchTabla('sessions', this)">
+    <svg class="db-tbl-icon" viewBox="0 0 14 14"><rect width="14" height="14" rx="1"/><line x1="0" y1="5" x2="14" y2="5"/><line x1="0" y1="9" x2="14" y2="9"/><line x1="5" y1="0" x2="5" y2="14"/></svg>
+    sessions
+    <span class="db-row-count">—</span>
+  </div>
+
+  <div class="db-side-item" data-tabla="alerts"
+       onclick="switchTabla('alerts', this)">
+    <svg class="db-tbl-icon" viewBox="0 0 14 14"><rect width="14" height="14" rx="1"/><line x1="0" y1="5" x2="14" y2="5"/><line x1="0" y1="9" x2="14" y2="9"/><line x1="5" y1="0" x2="5" y2="14"/></svg>
+    alerts
+    <span class="db-row-count">—</span>
+  </div>
+
+  <div class="db-side-item" data-tabla="training_metrics"
+       onclick="switchTabla('training_metrics', this)">
+    <svg class="db-tbl-icon" viewBox="0 0 14 14"><rect width="14" height="14" rx="1"/><line x1="0" y1="5" x2="14" y2="5"/><line x1="0" y1="9" x2="14" y2="9"/><line x1="5" y1="0" x2="5" y2="14"/></svg>
+    training_metrics
+    <span class="db-row-count">—</span>
+  </div>
+
+  <div class="db-side-item" data-tabla="model_config"
+       onclick="switchTabla('model_config', this)">
+    <svg class="db-tbl-icon" viewBox="0 0 14 14"><rect width="14" height="14" rx="1"/><line x1="0" y1="5" x2="14" y2="5"/><line x1="0" y1="9" x2="14" y2="9"/><line x1="5" y1="0" x2="5" y2="14"/></svg>
+    model_config
+    <span class="db-row-count">—</span>
+  </div>
+
+  <!-- Acciones rápidas -->
+  <div class="db-side-actions">
+    <button class="db-quick-btn primary" onclick="openCreate()">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M6 2v8M2 6h8"/>
+      </svg>
+      INSERT row
+    </button>
+    <button class="db-quick-btn" onclick="exportCSV()">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M2 9h8M6 2v5M4 5l2 2 2-2"/>
+      </svg>
+      Export CSV
+    </button>
+    <button class="db-quick-btn" onclick="loadTabla()">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M2 6a4 4 0 1 0 .8-2.4M2 2v3h3"/>
+      </svg>
+      Refresh
+    </button>
+  </div>
+</aside>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     MAIN
+══════════════════════════════════════════════════════════════════════════ -->
+<div class="db-main">
+
+  <!-- Stats row (6 celdas separadas por borde) -->
+  <div class="db-stats">
+    <div class="db-stat">
+      <div class="db-stat-lbl">Detections</div>
+      <div class="db-stat-val blue" id="stTotalDet">—</div>
+    </div>
+    <div class="db-stat">
+      <div class="db-stat-lbl">Sessions</div>
+      <div class="db-stat-val green" id="stTotalSes">—</div>
+    </div>
+    <div class="db-stat">
+      <div class="db-stat-lbl">Violations</div>
+      <div class="db-stat-val red" id="stTotalViol">—</div>
+    </div>
+    <div class="db-stat">
+      <div class="db-stat-lbl">Avg confidence</div>
+      <div class="db-stat-val cyan" id="stAvgConf">—</div>
+    </div>
+    <div class="db-stat">
+      <div class="db-stat-lbl">Alerts total</div>
+      <div class="db-stat-val amber" id="stAlerts">—</div>
+    </div>
+    <div class="db-stat">
+      <div class="db-stat-lbl">Unresolved</div>
+      <div class="db-stat-val red" id="stUnresolved">—</div>
+    </div>
+  </div>
+
+  <!-- Barra de tabs de tabla -->
+  <div class="db-topbar">
+    <button class="db-tab active" data-tabla="detections"
+            onclick="switchTabla('detections', this)">
+      <span class="db-tab-dot"></span>detections
+    </button>
+    <button class="db-tab" data-tabla="sessions"
+            onclick="switchTabla('sessions', this)">
+      <span class="db-tab-dot"></span>sessions
+    </button>
+    <button class="db-tab" data-tabla="alerts"
+            onclick="switchTabla('alerts', this)">
+      <span class="db-tab-dot"></span>alerts
+    </button>
+    <button class="db-tab" data-tabla="training_metrics"
+            onclick="switchTabla('training_metrics', this)">
+      <span class="db-tab-dot"></span>training_metrics
+    </button>
+    <button class="db-tab" data-tabla="model_config"
+            onclick="switchTabla('model_config', this)">
+      <span class="db-tab-dot"></span>model_config
+    </button>
+    <div class="db-topbar-right">
+      <button class="db-btn edit" onclick="openCreate()">+ INSERT</button>
+      <button class="db-btn"      onclick="exportCSV()">CSV ↓</button>
+      <button class="db-btn"      onclick="loadTabla()">↻</button>
+    </div>
+  </div>
+
+  <!-- Filtros dinámicos -->
+  <div class="db-filter-bar" id="filtrosWrap">
+    <span class="db-filter-label">WHERE</span>
+    <!-- JS inyecta los filtros aquí -->
+  </div>
+
+  <!-- Tabla de datos -->
+  <div class="db-content">
+    <div class="db-table-wrap">
+      <table class="db-table">
+        <thead><tr id="tblHead"></tr></thead>
+        <tbody id="tblBody">
+          <tr class="db-loading-row">
+            <td colspan="20"><div class="db-loading"></div> Consultando MariaDB...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Formulario CREATE / EDIT -->
+    <div class="db-form-panel" id="formPanel">
+      <div class="db-form-header">
+        <div class="db-form-title" id="formTitle">detections</div>
+        <div style="display:flex;gap:8px;">
+          <button class="db-btn edit" onclick="submitForm()">▶ Run</button>
+          <button class="db-btn" onclick="hideForm()">✕ Cancel</button>
+        </div>
+      </div>
+      <div class="db-form-body">
+        <div id="formFields"></div>
+      </div>
+      <!-- SQL preview en el footer del form -->
+      <div class="db-form-footer">
+        <div class="db-sql-prev" id="sqlPreview">
+          <span style="color:var(--db-cyan)">INSERT INTO</span> detections ...
+        </div>
+        <button class="db-btn edit" onclick="submitForm()">Ejecutar</button>
+        <button class="db-btn" onclick="hideForm()">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status bar -->
+  <div class="db-statusbar">
+    <div class="db-status-seg">
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2">
+        <circle cx="5" cy="5" r="3" fill="#10b981"/>
+      </svg>
+      <span>MariaDB</span>
+    </div>
+    <span class="db-status-sep">|</span>
+    <div class="db-status-seg">table: <span id="statusTable">detections</span></div>
+    <span class="db-status-sep">|</span>
+    <div class="db-status-seg"><span id="statusRows">—</span> rows</div>
+    <span class="db-status-sep">|</span>
+    <div class="db-status-seg"><span id="statusPage">p.1</span></div>
+
+    <div class="db-status-right">
+      <!-- Paginación integrada en statusbar -->
+      <div class="db-pag" id="paginacion"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     MODAL — confirmación DELETE
+══════════════════════════════════════════════════════════════════════════ -->
+<div class="db-modal-overlay" id="deleteModal">
+  <div class="db-modal">
+    <div class="db-modal-title">⚠ Confirmar DELETE</div>
+    <div class="db-modal-body">
+      Esta operación es <strong>irreversible</strong>. Se ejecutará:<br/>
+      <code class="db-modal-code" id="deleteLabel"></code>
+      <br/><br/>
+      <span style="font-size:12px;color:var(--db-text3);">
+        Sessions eliminadas borran en CASCADE sus detections y alerts (FK ondelete).
+      </span>
+    </div>
+    <div class="db-modal-actions">
+      <button class="db-btn" onclick="cancelDelete()">Cancel</button>
+      <button class="db-btn del" onclick="executeDelete()">DELETE ↵</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toasts -->
+<div class="db-toasts" id="toasts"></div>
+
+<script src="{{ url_for('static', filename='js/crud.js') }}"></script>
+</body>
+</html>
