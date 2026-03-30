@@ -1,4 +1,3 @@
-// colores hex (RGB) para canvas — equivalentes a los BGR de OpenCV en app.py
 const CLASS_COLORS = {
   'persona':       '#0000ff',
   'guante':        '#c80000',
@@ -17,23 +16,14 @@ const CLASS_COLORS = {
   'no_botas':      '#500050',
 };
 
-// clases cuya ausencia es una violación
-const VIOLATION_CLASSES = new Set([
-  'no_guante', 'no_gafas', 'no_gorro',
-  'no_bata', 'no_mascarilla', 'no_pantalón', 'no_botas',
-]);
-
 function getColor(className) {
   return CLASS_COLORS[className] || '#888888';
 }
 
-// -- reloj ------------------------------------------------------------------
-
+// ---- Utilidades globales --------------------------------------------------
 function updateClock() { EPP.setText('navTime', new Date().toLocaleTimeString('es-MX')); }
 updateClock();
 setInterval(updateClock, 1000);
-
-// -- navegación -------------------------------------------------------------
 
 function showSection(id, el) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -44,239 +34,166 @@ function showSection(id, el) {
   if (id === 'historial') loadHistorial();
 }
 
-// -- opción guardar imágenes ------------------------------------------------
-
 function saveImagesEnabled() {
   return document.getElementById('chkSaveImages')?.checked !== false;
 }
 
+// ---- Variables de estado --------------------------------------------------
+let streamActive = false;
+let statsInterval = null;
+let saveInterval = null;
+const CAPTURE_MS = 3000;
+let lastDetections = [];
+let lastSavedDetections = [];
 
-// ===========================================================================
-// tiempo real
-// ===========================================================================
-
-let videoStream     = null;
-let videoEl         = null;
-let captureInterval = null;
-let inferencing     = false;
-let rtActive        = false;
-let liveDetections  = [];
-let alertLog        = [];
-let frameCount      = 0;
-let fpsTimer        = null;
-
-const CAPTURE_MS = 300;
-const CANVAS_W   = 640;
-const CANVAS_H   = 360;
-
-async function populateCameraSelector(currentDeviceId) {
-  const sel = document.getElementById('cameraSource');
-  if (!sel) return;
-  try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const cameras = devices.filter(d => d.kind === 'videoinput');
-    sel.innerHTML = cameras.length
-      ? cameras.map((c, i) =>
-          `<option value="${c.deviceId}" ${c.deviceId === currentDeviceId ? 'selected' : ''}>
-            ${c.label || 'Cámara ' + (i + 1)}
-          </option>`
-        ).join('')
-      : '<option value="">Sin cámaras detectadas</option>';
-  } catch {
-    sel.innerHTML = '<option value="">Error al listar cámaras</option>';
-  }
-}
-
-async function startCamera() {
-  const btn      = document.getElementById('btnPlay');
-  const pill     = document.getElementById('livePill');
-  const deviceId = document.getElementById('cameraSource')?.value || null;
-
-  if (btn) { btn.textContent = 'Conectando...'; btn.disabled = true; }
-
-  try {
-    videoStream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        width:  { ideal: 1280 },
-        height: { ideal: 720  },
-        ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'environment' }),
-      },
-      audio: false,
-    });
-
-    const trackSettings = videoStream.getVideoTracks()[0]?.getSettings();
-    await populateCameraSelector(trackSettings?.deviceId || deviceId);
-
-    if (!videoEl) {
-      videoEl = Object.assign(document.createElement('video'), {
-        playsInline: true, muted: true,
-      });
-      videoEl.style.display = 'none';
-      document.body.appendChild(videoEl);
+// ---- Comparar si hubo cambios ---------------------------------------------
+function detectionsChanged(current, previous) {
+  if (current.length !== previous.length) return true;
+  for (let i = 0; i < current.length; i++) {
+    const c = current[i];
+    const p = previous[i];
+    if (c.class_name !== p.class_name ||
+        c.confidence !== p.confidence ||
+        c.is_violation !== p.is_violation ||
+        c.x1 !== p.x1 || c.y1 !== p.y1 || c.x2 !== p.x2 || c.y2 !== p.y2) {
+      return true;
     }
-    videoEl.srcObject = videoStream;
-    await videoEl.play();
-
-    rtActive = true;
-    if (btn)  { btn.textContent = '⏹ Detener'; btn.className = 'btn danger'; btn.disabled = false; btn.onclick = stopCamera; }
-    if (pill) { pill.textContent = '● EN VIVO'; pill.className = 'rt-pill live'; }
-    EPP.setText('rtSourceLabel', 'Cámara activa');
-
-    startCapture();
-    startFpsCounter();
-    EPP.toast('ok', 'Cámara conectada');
-
-  } catch (err) {
-    if (btn) { btn.textContent = '▶ Iniciar cámara'; btn.className = 'btn primary'; btn.disabled = false; btn.onclick = startCamera; }
-    const msgs = {
-      NotAllowedError:     'Permiso denegado — habilita la cámara en el navegador',
-      NotFoundError:       'No se encontró ninguna cámara',
-      NotReadableError:    'Cámara en uso por otra aplicación',
-      OverconstrainedError:'Cámara seleccionada no compatible',
-    };
-    EPP.toast('err', msgs[err.name] || `Error: ${err.message}`);
   }
+  return false;
 }
 
+// ---- Iniciar cámara -------------------------------------------------------
+function startCamera() {
+  const img = document.getElementById('videoStream');
+  if (!img) return;
+  img.src = '/video_feed';
+  img.style.display = 'block';
+  streamActive = true;
+
+  if (statsInterval) clearInterval(statsInterval);
+  if (saveInterval) clearInterval(saveInterval);
+
+  statsInterval = setInterval(async () => {
+    if (!streamActive) return;
+    try {
+      const res = await fetch('/api/latest_stats');
+      const data = await res.json();
+      const currentDetections = data.detections || [];
+      updateStatsFromData(data);
+      renderDetListFromData(currentDetections);
+      checkAlertsFromData(currentDetections);
+      lastDetections = currentDetections;
+    } catch (err) { console.error('stats error:', err); }
+  }, 500);
+
+  saveInterval = setInterval(async () => {
+    if (!streamActive) return;
+    if (!saveImagesEnabled()) return;
+    try {
+      const current = lastDetections;
+      const hasChanged = detectionsChanged(current, lastSavedDetections);
+      const shouldSaveImage = hasChanged;
+
+      const res = await fetch('/api/save_current', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          save_images: shouldSaveImage,
+          source: 'camara'
+        })
+      });
+      if (res.ok) {
+        if (shouldSaveImage) {
+          console.log('📸 Imagen guardada (cambio detectado)');
+          lastSavedDetections = current;
+        } else {
+          console.log('📊 Estadísticas guardadas (sin cambio de imagen)');
+        }
+      } else {
+        console.error('Error al guardar en BD');
+      }
+    } catch (err) { console.error('save error:', err); }
+  }, CAPTURE_MS);
+
+  const btn = document.getElementById('btnPlay');
+  if (btn) {
+    btn.textContent = '⏹ Detener cámara';
+    btn.className = 'btn danger';
+    btn.onclick = stopCamera;
+  }
+
+  // overlay: EN VIVO
+  const overlayStatus = document.getElementById('overlayStatus');
+  const overlayFps    = document.getElementById('overlayFps');
+  if (overlayStatus) {
+    overlayStatus.textContent   = '● EN VIVO';
+    overlayStatus.style.background = 'rgba(255,77,109,.25)';
+    overlayStatus.style.color      = '#ff7a90';
+    overlayStatus.style.borderColor = 'rgba(255,77,109,.3)';
+  }
+  if (overlayFps) overlayFps.style.display = 'inline-block';
+
+  EPP.setText('rtSourceLabel', 'Stream activo');
+  EPP.toast('ok', 'Cámara iniciada');
+}
+
+// ---- Detener cámara -------------------------------------------------------
 function stopCamera() {
-  rtActive = false;
-  clearInterval(captureInterval); captureInterval = null;
-  clearInterval(fpsTimer);
+  // avisar al backend para que libere la cámara y apague el LED
+  fetch('/api/stop_camera', { method: 'POST' }).catch(() => {});
 
-  videoStream?.getTracks().forEach(t => t.stop());
-  videoStream = null;
-  if (videoEl) videoEl.srcObject = null;
+  const img = document.getElementById('videoStream');
+  if (img) {
+    img.src = '';
+    img.style.display = 'none';
+  }
+  streamActive = false;
+  if (statsInterval) clearInterval(statsInterval);
+  if (saveInterval)  clearInterval(saveInterval);
 
-  const btn  = document.getElementById('btnPlay');
-  const pill = document.getElementById('livePill');
-  if (btn) { btn.textContent = '▶ Iniciar cámara'; btn.className = 'btn primary'; btn.disabled = false; btn.onclick = startCamera; }
-  if (pill) { pill.textContent = '⏹ DETENIDO'; pill.className = 'rt-pill info'; }
-  EPP.setText('statFps', '—');
-  EPP.setText('fpsPill', '— FPS');
-  EPP.setText('rtSourceLabel', 'Sin cámara');
+  const btn = document.getElementById('btnPlay');
+  if (btn) {
+    btn.textContent = '▶ Iniciar cámara';
+    btn.className   = 'btn primary';
+    btn.onclick     = startCamera;
+  }
+  // overlay: DETENIDO
+  const overlayStatus = document.getElementById('overlayStatus');
+  const overlayFps    = document.getElementById('overlayFps');
+  if (overlayStatus) {
+    overlayStatus.textContent      = '⏹ DETENIDO';
+    overlayStatus.style.background = 'rgba(0,150,255,.2)';
+    overlayStatus.style.color      = '#5cc8ff';
+    overlayStatus.style.borderColor = 'rgba(0,150,255,.3)';
+  }
+  if (overlayFps) overlayFps.style.display = 'none';
 
-  const sel = document.getElementById('cameraSource');
-  if (sel) sel.innerHTML = '<option value="">Presiona "Iniciar cámara" para acceder</option>';
-
-  drawIdleCanvas();
+  EPP.setText('rtSourceLabel', 'Cámara detenida');
   EPP.toast('info', 'Cámara detenida');
 }
 
-function startCapture() {
-  clearInterval(captureInterval);
-  captureInterval = setInterval(async () => {
-    if (!rtActive || inferencing || !videoEl || videoEl.readyState < 2) return;
-    inferencing = true;
-    try {
-      const canvas = document.getElementById('rtCanvas');
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(videoEl, 0, 0, CANVAS_W, CANVAS_H);
-
-      const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.80));
-      const form = new FormData();
-      form.append('image', blob, 'frame.jpg');
-      form.append('save_images', saveImagesEnabled() ? 'true' : 'false');
-      form.append('source', 'camara');
-
-      const res  = await fetch(`${EPP.API}/api/detect`, { method: 'POST', body: form });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-
-      ctx.drawImage(videoEl, 0, 0, CANVAS_W, CANVAS_H);
-
-      if (data.warning) {
-        drawWarningBanner(ctx, data.warning);
-        liveDetections = [];
-        renderDetList();
-        return;
-      }
-
-      drawDetections(ctx, data.detections || []);
-      liveDetections = data.detections || [];
-      updateRtStats(data);
-      renderDetList();
-      checkAlerts(data.detections || []);
-      frameCount++;
-    } catch (err) {
-      console.error('Inference error:', err);
-    } finally {
-      inferencing = false;
-    }
-  }, CAPTURE_MS);
-}
-
-function drawDetections(ctx, detections) {
-  detections.forEach(d => {
-    const col = getColor(d.class_name);
-    const x1  = Math.round(d.x1), y1 = Math.round(d.y1);
-    const w   = Math.round(d.x2 - d.x1), h = Math.round(d.y2 - d.y1);
-
-    ctx.strokeStyle = col;
-    ctx.lineWidth   = d.is_violation ? 2.5 : 1.8;
-    ctx.strokeRect(x1, y1, w, h);
-    ctx.fillStyle = col + '22';
-    ctx.fillRect(x1, y1, w, h);
-
-    const lbl = `${d.class_name} ${(d.confidence * 100).toFixed(0)}%`;
-    ctx.font  = 'bold 11px "Space Mono", monospace';
-    const tw  = ctx.measureText(lbl).width;
-    ctx.fillStyle = col;
-    ctx.fillRect(x1, y1 - 20, tw + 12, 20);
-    ctx.fillStyle = '#000';
-    ctx.fillText(lbl, x1 + 6, y1 - 5);
-  });
-}
-
-function drawWarningBanner(ctx, msg) {
-  ctx.fillStyle = 'rgba(255,184,48,0.9)';
-  ctx.fillRect(0, CANVAS_H - 40, CANVAS_W, 40);
-  ctx.fillStyle = '#000';
-  ctx.font = 'bold 12px "Space Mono", monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('⚠ ' + msg, CANVAS_W / 2, CANVAS_H - 14);
-}
-
-function drawIdleCanvas() {
-  const canvas = document.getElementById('rtCanvas');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#070910';
-  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-  ctx.strokeStyle = 'rgba(255,255,255,0.03)'; ctx.lineWidth = 1;
-  for (let x = 0; x < CANVAS_W; x += 40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,CANVAS_H); ctx.stroke(); }
-  for (let y = 0; y < CANVAS_H; y += 40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(CANVAS_W,y); ctx.stroke(); }
-  ctx.fillStyle = 'rgba(255,255,255,0.18)';
-  ctx.font = '14px "Space Mono", monospace'; ctx.textAlign = 'center';
-  ctx.fillText('Presiona  ▶ Iniciar cámara  para comenzar', CANVAS_W / 2, CANVAS_H / 2);
-  ctx.font = '11px "Space Mono", monospace'; ctx.fillStyle = 'rgba(255,255,255,0.08)';
-  ctx.fillText('El permiso se solicitará al iniciar', CANVAS_W / 2, CANVAS_H / 2 + 28);
-}
-
-function updateRtStats(data) {
-  EPP.setText('statPersonas', data.total_persons || 0);
-  EPP.setText('statViol',     data.violations    || 0);
+// ---- Actualización de la UI -----------------------------------------------
+function updateStatsFromData(data) {
+  EPP.setText('statPersonas', data.total_persons ?? '—');
+  EPP.setText('statViol',     data.violations    ?? '—');
   EPP.setText('statOk',       Math.max(0, (data.total_persons||0) - (data.violations||0)));
+  const fps = data.fps ?? '—';
+  EPP.setText('statFps', fps);
+  const overlayFps = document.getElementById('overlayFps');
+  if (overlayFps && overlayFps.style.display !== 'none') {
+    overlayFps.textContent = `${fps} FPS`;
+  }
 }
 
-function startFpsCounter() {
-  clearInterval(fpsTimer); frameCount = 0;
-  fpsTimer = setInterval(() => {
-    EPP.setText('statFps', frameCount);
-    EPP.setText('fpsPill', frameCount + ' FPS');
-    frameCount = 0;
-  }, 1000);
-}
-
-function renderDetList() {
+function renderDetListFromData(detections) {
   const el = document.getElementById('detList');
   if (!el) return;
-  if (!liveDetections.length) {
+  if (!detections.length) {
     el.innerHTML = '<div style="color:var(--text3);text-align:center;padding:20px;font-family:var(--mono);font-size:11px;">Sin detecciones</div>';
     return;
   }
-  el.innerHTML = liveDetections.map(d => {
-    const col     = getColor(d.class_name);
+  el.innerHTML = detections.map(d => {
+    const col = getColor(d.class_name);
     const badgeCls = d.is_violation ? 'danger' : d.class_name === 'persona' ? 'info' : 'ok';
     return `<div class="det-item">
       <span class="det-badge ${badgeCls}" style="border-left:3px solid ${col};">${d.class_name}</span>
@@ -290,7 +207,8 @@ function renderDetList() {
   }).join('');
 }
 
-function checkAlerts(detections) {
+let alertLog = [];
+function checkAlertsFromData(detections) {
   const viols = detections.filter(d => d.is_violation);
   if (!viols.length) return;
   viols.forEach(v => alertLog.unshift({
@@ -316,11 +234,9 @@ function renderAlertLog() {
     </div>`).join('');
 }
 
-
 // ===========================================================================
-// subir imagen
+// Subir imagen (sin cambios)
 // ===========================================================================
-
 function handleDrop(e) {
   e.preventDefault();
   document.getElementById('dropzone')?.classList.remove('drag');
@@ -398,11 +314,9 @@ function clearUpload() {
   if (pr) pr.style.display = 'none';
 }
 
-
 // ===========================================================================
-// historial
+// Historial, métricas y configuración (funciones originales)
 // ===========================================================================
-
 let histPage = 1;
 const HIST_PS = 15;
 
@@ -448,11 +362,6 @@ async function exportHistCSV() {
     EPP.toast('ok', 'CSV exportado');
   } catch { EPP.toast('err', 'Error exportando CSV'); }
 }
-
-
-// ===========================================================================
-// métricas
-// ===========================================================================
 
 let chartsInited = false;
 
@@ -516,11 +425,6 @@ async function initCharts() {
   } catch (e) { console.error('chartClases error:', e); }
 }
 
-
-// ===========================================================================
-// configuración
-// ===========================================================================
-
 async function loadConfig() {
   try {
     const resp = await EPP.apiFetch('/api/config');
@@ -543,15 +447,11 @@ async function saveConfig(id) {
   } catch { EPP.toast('err', 'Error guardando config'); }
 }
 
-
 // ===========================================================================
-// init
+// Inicialización
 // ===========================================================================
-
 document.addEventListener('DOMContentLoaded', () => {
-  const sel = document.getElementById('cameraSource');
-  if (sel) sel.innerHTML = '<option value="">Presiona "Iniciar cámara" para acceder</option>';
-
+  const img = document.getElementById('videoStream');
+  if (img) img.src = '';
   loadConfig();
-  drawIdleCanvas();
 });

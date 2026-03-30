@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     environment:
       MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
-      MARIADB_DATABASE:      epp_db
+      MARIADB_DATABASE:      ${MARIADB_NAME}
       MARIADB_USER:          ${MARIADB_USER}
       MARIADB_PASSWORD:      ${MARIADB_PASSWORD}
     volumes:
@@ -30,10 +30,10 @@ services:
     environment:
       NVIDIA_VISIBLE_DEVICES: all
       DB_HOST:     db
-      DB_PORT:     3306
-      DB_USER:     ${MARIADB_USER:-epp_user}
+      DB_PORT:     ${MARIADB_PORT}
+      DB_USER:     ${MARIADB_USER}
       DB_PASSWORD: ${MARIADB_PASSWORD}
-      DB_NAME:     epp_db
+      DB_NAME:     ${MARIADB_NAME}
       FLASK_ENV:   ${FLASK_ENV}
     volumes:
       - ./app/backend/templates:/app/templates
@@ -62,13 +62,15 @@ services:
   frontend:
     build: ./app/frontend
     container_name: epp-frontend
+    runtime: nvidia
     environment:
-      - API_URL=http://backend:5000
-    privileged: true
+      NVIDIA_VISIBLE_DEVICES: all
+      API_URL: http://backend:5000
     devices:
     - /dev/video0:/dev/video0
     - /dev/video1:/dev/video1
     volumes:
+      - ./app/backend/models:/app/models
       - ./app/frontend/dashboard_captura.py:/app/dashboard_captura.py
       - ./data:/workspaces/deteccioneppalimentarias/data
       - ./notebooks:/workspaces/deteccioneppalimentarias/notebooks
@@ -82,8 +84,8 @@ services:
       - epp-network
     restart: unless-stopped
     device_cgroup_rules:
-      - 'c 81:* rmw'   # video4linux
-      - 'c 189:* rmw'  # usb devices
+      - 'c 81:* rmw'
+      - 'c 189:* rmw'
 
 volumes:
   db_data:

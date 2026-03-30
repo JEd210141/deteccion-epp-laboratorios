@@ -8,6 +8,20 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
 <style>
+.canvas-wrap {
+    background: #000;
+    border-radius: var(--r);
+    overflow: hidden;
+    aspect-ratio: 16 / 9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+#videoStream {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
 .save-toggle {
   display: flex; align-items: center; gap: 8px;
   font-family: var(--mono); font-size: 11px; color: var(--text2);
@@ -79,12 +93,12 @@
 <main class="main">
 <div class="toast-container" id="toasts"></div>
 
-<!-- ═══════════ TIEMPO REAL ═══════════ -->
+<!-- ═══════════ TIEMPO REAL (stream MJPEG) ═══════════ -->
 <div class="section active" id="sec-rt">
   <div class="page-header">
     <div>
       <div class="page-title">Detección en tiempo real</div>
-      <div class="page-sub">Stream de cámara → canvas → POST /api/detect → MariaDB</div>
+      <div class="page-sub">Stream MJPEG desde el contenedor · guardado condicional</div>
     </div>
   </div>
 
@@ -92,7 +106,7 @@
     <div class="stat-card blue">
       <div class="stat-label">Personas detectadas</div>
       <div class="stat-value blue" id="statPersonas">—</div>
-      <div class="stat-sub">frame actual</div>
+      <div class="stat-sub">último frame</div>
     </div>
     <div class="stat-card ok">
       <div class="stat-label">EPP completo</div>
@@ -102,28 +116,40 @@
     <div class="stat-card danger">
       <div class="stat-label">Violaciones activas</div>
       <div class="stat-value danger" id="statViol">—</div>
-      <div class="stat-sub">no_guante / no_gorro / etc.</div>
+      <div class="stat-sub">último frame</div>
     </div>
     <div class="stat-card warn">
       <div class="stat-label">FPS inferencia</div>
       <div class="stat-value warn" id="statFps">—</div>
-      <div class="stat-sub">≈ tiempo real</div>
+      <div class="stat-sub">aprox.</div>
     </div>
   </div>
 
   <div class="g21">
     <div>
-      <div class="canvas-wrap">
-        <canvas id="rtCanvas" width="640" height="360"></canvas>
-        <div class="rt-overlay">
-          <span class="rt-pill info" id="livePill">⏹ DETENIDO</span>
-          <span class="rt-pill info" id="fpsPill">— FPS</span>
+      <div class="canvas-wrap" style="position:relative;">
+        <img id="videoStream" src="" style="display:none; width:100%; height:100%; object-fit:contain;">
+        <!-- overlay: se muestra siempre encima del stream -->
+        <div id="streamOverlay" style="
+            position:absolute; top:10px; left:10px;
+            display:flex; gap:6px; pointer-events:none;">
+          <span id="overlayStatus" style="
+              font-family:var(--mono); font-size:10px; padding:4px 10px;
+              border-radius:4px; backdrop-filter:blur(4px);
+              background:rgba(0,150,255,.2); color:#5cc8ff;
+              border:1px solid rgba(0,150,255,.3);">
+            ⏹ DETENIDO
+          </span>
+          <span id="overlayFps" style="
+              font-family:var(--mono); font-size:10px; padding:4px 10px;
+              border-radius:4px; backdrop-filter:blur(4px);
+              background:rgba(0,0,0,.35); color:rgba(255,255,255,.7);
+              border:1px solid rgba(255,255,255,.1); display:none;">
+            — FPS
+          </span>
         </div>
       </div>
       <div class="rt-controls">
-        <select id="cameraSource" class="inp" style="max-width:220px;">
-          <option value="">Presiona "Iniciar cámara" para acceder</option>
-        </select>
         <button class="btn primary" id="btnPlay" onclick="startCamera()">▶ Iniciar cámara</button>
         <label class="save-toggle" id="saveToggleRt" onclick="this.classList.toggle('active')">
           <input type="checkbox" id="chkSaveImages" checked
@@ -131,11 +157,10 @@
           Guardar imágenes
         </label>
         <span style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--text3);"
-              id="rtSourceLabel">Sin cámara</span>
+              id="rtSourceLabel">Cámara del contenedor</span>
       </div>
       <div style="margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--text3);display:flex;gap:16px;">
-        <span>Captura cada 300ms · JPEG 80%</span>
-        <span>→ POST /api/detect</span>
+        <span>Stream continuo · guardado cada <span id="intervalDisplay">3</span> segundos</span>
         <span id="saveHint" style="color:var(--accent);">→ guarda imágenes en disco</span>
       </div>
     </div>
@@ -223,7 +248,7 @@
   </div>
 </div>
 
-<!-- ═══════════ HISTORIAL ═══════════ -->
+<!-- HISTORIAL -->
 <div class="section" id="sec-historial">
   <div class="page-header">
     <div>
@@ -279,13 +304,13 @@
         <button class="btn sm" onclick="
           document.querySelectorAll('#filtTabla,#filtClase,#filtEstado,#filtModelo,#filtConf')
             .forEach(e=>e.value='');
-          histPage=1;loadHistorial();">Limpiar Filtros</button>
+          histPage=1;loadHistorial();">Limpiar</button>
       </div>
     </div>
   </div>
   <div class="tbl-wrap" style="border-radius:var(--r);border:1px solid var(--border);overflow:hidden;">
-     <table class="tbl">
-      <thead><tr id="histHead">  </tr></thead>
+    <table>
+      <thead><tr id="histHead"></tr></thead>
       <tbody id="histBody">
         <tr><td colspan="10" class="tbl-empty">Cargando registros...</td></tr>
       </tbody>
@@ -294,7 +319,7 @@
   <div class="pagination" id="histPag"></div>
 </div>
 
-<!-- ═══════════ MÉTRICAS ═══════════ -->
+<!-- MÉTRICAS -->
 <div class="section" id="sec-metricas">
   <div class="page-header">
     <div>
@@ -304,7 +329,7 @@
   </div>
   <div class="metrics-top">
     <div class="metric-mini"><div class="metric-val blue" id="mTotalDet">—</div><div class="metric-label">Detecciones totales</div></div>
-    <div class="metric-mini"><div class="metric-val ok" id="mTotalSes">—</div><div class="metric-label">Sesiones totales</div></div>
+    <div class="metric-mini"><div class="metric-val ok"   id="mTotalSes">—</div><div class="metric-label">Sesiones totales</div></div>
     <div class="metric-mini"><div class="metric-val danger" id="mTotalViol">—</div><div class="metric-label">Violaciones totales</div></div>
     <div class="metric-mini"><div class="metric-val warn" id="mAvgConf">—</div><div class="metric-label">Confianza promedio</div></div>
   </div>
@@ -318,7 +343,7 @@
   </div>
 </div>
 
-<!-- ═══════════ CONFIGURACIÓN ═══════════ -->
+<!-- CONFIGURACIÓN -->
 <div class="section" id="sec-config">
   <div class="page-header">
     <div>

@@ -7,8 +7,10 @@ import streamlit as st
 import numpy as np
 from ultralytics import YOLO
 
-PERSON_MODEL_PATH = "models/yolo26m.pt"
-EPP_MODEL_PATH    = "models/final/epp_production/model_epp_v26.pt"
+st.set_page_config(page_title="Captura con detección EPP", layout="wide")
+
+PERSON_MODEL_PATH = "/app/models/yolo26m.pt"
+EPP_MODEL_PATH    = "/app/models/modeloepp_v1.pt"
 BASE_OUTPUT       = Path("/workspaces/deteccioneppalimentarias/data/raw/tec_teziutlan/session_lab_alimentos")
 
 IMGSZ       = 640
@@ -242,8 +244,7 @@ def reentrenar():
 
 # ---- interfaz ----
 
-st.set_page_config(page_title="Captura con detección EPP", layout="wide")
-st.title("🛡️ Captura de imágenes con detección de personas y EPP (cámara local)")
+st.title("🛡️ Captura de imágenes con detección de personas y EPP")
 
 with st.sidebar:
     st.header("Controles")

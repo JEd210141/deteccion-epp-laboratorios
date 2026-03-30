@@ -3,8 +3,9 @@ import numpy as np
 import os
 import time
 import base64
+import threading
 from datetime import datetime
-from flask import Flask, request, jsonify, render_template, send_from_directory, redirect
+from flask import Flask, request, jsonify, render_template, send_from_directory, redirect, Response
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 
@@ -40,7 +41,7 @@ db = SQLAlchemy(app)
 
 
 # ---------------------------------------------------------------------------
-# Clases del dataset
+# Clases del dataset (ORM)
 # ---------------------------------------------------------------------------
 
 PERSON_NAMES = {0: 'persona'}
@@ -88,15 +89,12 @@ EPP_COLORS = {
     14: (80, 0, 80),      # no_botas     → morado oscuro
 }
 
-
 # ---------------------------------------------------------------------------
-# ORM
+# ORM (definiciones de tablas)
 # ---------------------------------------------------------------------------
-
 class ModelConfig(db.Model):
     __tablename__ = 'model_config'
-
-    id             = db.Column(db.Integer,     primary_key=True, autoincrement=True)
+    id             = db.Column(db.Integer, primary_key=True, autoincrement=True)
     name           = db.Column(db.String(100), nullable=False, unique=True)
     weights_path   = db.Column(db.String(255))
     conf_threshold = db.Column(db.Float,   default=0.25)
@@ -104,9 +102,7 @@ class ModelConfig(db.Model):
     img_size       = db.Column(db.Integer, default=640)
     created_at     = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at     = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    metrics = db.relationship('TrainingMetric', backref='model', lazy=True,
-                              cascade='all, delete-orphan')
+    metrics = db.relationship('TrainingMetric', backref='model', lazy=True, cascade='all, delete-orphan')
 
     def to_dict(self):
         return {
@@ -120,11 +116,9 @@ class ModelConfig(db.Model):
             'updated_at':     self.updated_at.strftime('%Y-%m-%d %H:%M:%S') if self.updated_at else None,
         }
 
-
 class Session(db.Model):
     __tablename__ = 'sessions'
-
-    id            = db.Column(db.Integer,  primary_key=True, autoincrement=True)
+    id            = db.Column(db.Integer, primary_key=True, autoincrement=True)
     timestamp     = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     source        = db.Column(db.String(50))
     image_path    = db.Column(db.String(512))
@@ -132,11 +126,8 @@ class Session(db.Model):
     duration_ms   = db.Column(db.Integer)
     total_persons = db.Column(db.Integer, default=0)
     total_epp_ok  = db.Column(db.Integer, default=0)
-
-    detections = db.relationship('Detection', backref='session', lazy=True,
-                                 cascade='all, delete-orphan')
-    alerts     = db.relationship('Alert', backref='session', lazy=True,
-                                 cascade='all, delete-orphan')
+    detections = db.relationship('Detection', backref='session', lazy=True, cascade='all, delete-orphan')
+    alerts     = db.relationship('Alert', backref='session', lazy=True, cascade='all, delete-orphan')
 
     def to_dict(self):
         return {
@@ -150,10 +141,8 @@ class Session(db.Model):
             'total_epp_ok':  self.total_epp_ok,
         }
 
-
 class Detection(db.Model):
     __tablename__ = 'detections'
-
     id           = db.Column(db.Integer, primary_key=True, autoincrement=True)
     session_id   = db.Column(db.Integer, db.ForeignKey('sessions.id', ondelete='CASCADE'), index=True)
     model_used   = db.Column(db.String(100))
@@ -181,10 +170,8 @@ class Detection(db.Model):
             'created_at':   self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
         }
 
-
 class Alert(db.Model):
     __tablename__ = 'alerts'
-
     id         = db.Column(db.Integer, primary_key=True, autoincrement=True)
     session_id = db.Column(db.Integer, db.ForeignKey('sessions.id', ondelete='CASCADE'), index=True)
     alert_type = db.Column(db.String(50))
@@ -204,10 +191,8 @@ class Alert(db.Model):
             'notes':      self.notes,
         }
 
-
 class TrainingMetric(db.Model):
     __tablename__ = 'training_metrics'
-
     id         = db.Column(db.Integer, primary_key=True, autoincrement=True)
     model_id   = db.Column(db.Integer, db.ForeignKey('model_config.id', ondelete='CASCADE'), index=True)
     epoch      = db.Column(db.Integer)
@@ -242,7 +227,6 @@ class TrainingMetric(db.Model):
 model_person = None
 model_epp    = None
 
-
 def load_models():
     global model_person, model_epp
     try:
@@ -258,13 +242,10 @@ def load_models():
     except Exception as ex:
         print(f'[WARN] Modelos no disponibles — modo demo. {ex}')
 
-
 def run_inference(img_array):
     if model_epp is None or model_person is None:
         return []
-
     dets = []
-
     results_person = model_person(img_array, conf=0.25, classes=[0], imgsz=640, verbose=False, half=True)
     if results_person:
         for box in results_person[0].boxes:
@@ -277,7 +258,6 @@ def run_inference(img_array):
                 'model_used':  'yolo26m',
                 'class_id':    0,
             })
-
     results_epp = model_epp(img_array, conf=0.1, imgsz=640, verbose=False, half=True)
     if results_epp:
         for box in results_epp[0].boxes:
@@ -292,28 +272,160 @@ def run_inference(img_array):
                 'model_used':  'modeloepp_v1',
                 'class_id':    cls_id,
             })
-
     return dets
-
 
 def draw_boxes(img, dets):
     out = img.copy()
     for d in dets:
         x1, y1, x2, y2 = int(d['x1']), int(d['y1']), int(d['x2']), int(d['y2'])
         cls_id = d.get('class_id', 0)
-
         if d['class_name'] == 'persona':
             col = PERSON_COLOR
         else:
             col = EPP_COLORS.get(cls_id, (200, 200, 200))
-
         cv2.rectangle(out, (x1, y1), (x2, y2), col, 2)
         lbl = f"{d['class_name']} {d['confidence']:.2f}"
         (tw, th), _ = cv2.getTextSize(lbl, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
         cv2.rectangle(out, (x1, y1 - th - 6), (x1 + tw + 6, y1), col, -1)
         cv2.putText(out, lbl, (x1 + 3, y1 - 3), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-
     return out
+
+
+# ---------------------------------------------------------------------------
+# Cámara robusta (stream MJPEG)
+# ---------------------------------------------------------------------------
+
+INDICES_CAMARA = [0, 1, 2, 3]
+FORMATOS_CAM = ['MJPG', 'YUYV']
+RESOLUCIONES_CAM = [(640, 480), (320, 240), (160, 120)]
+
+camera = None
+current_cam_config = None
+camera_active = False   # el frontend controla este flag
+
+def init_camera_robust():
+    global camera, current_cam_config
+    for idx in INDICES_CAMARA:
+        for fourcc_str in FORMATOS_CAM:
+            fourcc = cv2.VideoWriter_fourcc(*fourcc_str)
+            for width, height in RESOLUCIONES_CAM:
+                print(f"Probando cámara {idx} con {fourcc_str} {width}x{height}...")
+                cap = cv2.VideoCapture(idx, cv2.CAP_V4L2)
+                if not cap.isOpened():
+                    continue
+                cap.set(cv2.CAP_PROP_FOURCC, fourcc)
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+                cap.set(cv2.CAP_PROP_FPS, 30)
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                for _ in range(5):
+                    ret, frame = cap.read()
+                    if ret and frame is not None:
+                        print(f"✅ Cámara configurada: {idx} {fourcc_str} {width}x{height}")
+                        camera = cap
+                        current_cam_config = (idx, fourcc_str, width, height)
+                        return True
+                    time.sleep(0.1)
+                cap.release()
+    print("❌ No se pudo abrir ninguna cámara")
+    return False
+
+def get_camera():
+    global camera
+    if camera is None or not camera.isOpened():
+        if init_camera_robust():
+            return camera
+        else:
+            return None
+    return camera
+
+# ---------------------------------------------------------------------------
+# Últimos datos para estadísticas y guardado
+# ---------------------------------------------------------------------------
+
+last_frame = None
+last_stats = {
+    'total_persons': 0,
+    'violations':    0,
+    'detections':    [],
+    'fps':           0,
+}
+last_stats_lock = threading.Lock()
+
+_fps_counter = 0
+_fps_ts      = time.time()
+_fps_current = 0
+
+def update_last_stats(dets, persons, viols):
+    global _fps_counter, _fps_ts, _fps_current
+    _fps_counter += 1
+    now     = time.time()
+    elapsed = now - _fps_ts
+    if elapsed >= 1.0:
+        _fps_current = round(_fps_counter / elapsed, 1)
+        _fps_counter = 0
+        _fps_ts      = now
+    with last_stats_lock:
+        last_stats['total_persons'] = persons
+        last_stats['violations']    = viols
+        last_stats['detections']    = dets
+        last_stats['fps']           = _fps_current
+
+def generate_frames():
+    global last_frame, camera, camera_active
+    camera_active = True
+    while camera_active:
+        cap = get_camera()
+        if cap is None:
+            time.sleep(1)
+            continue
+        ret, frame = cap.read()
+        if not ret:
+            camera = None
+            cap = get_camera()
+            if cap is None:
+                time.sleep(1)
+                continue
+            ret, frame = cap.read()
+            if not ret:
+                continue
+
+        last_frame = frame.copy()
+
+        detections      = run_inference(frame)
+        frame_with_boxes = draw_boxes(frame, detections)
+
+        persons = sum(1 for d in detections if d['class_name'] == 'persona')
+        viols   = len([d for d in detections if d['is_violation']])
+        update_last_stats(detections, persons, viols)
+
+        ret, jpeg = cv2.imencode('.jpg', frame_with_boxes, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        if not ret:
+            continue
+
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
+
+    # liberar la cámara al salir del bucle → apaga el LED
+    if camera is not None:
+        camera.release()
+        camera = None
+
+@app.route('/video_feed')
+def video_feed():
+    return Response(generate_frames(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
+@app.route('/api/stop_camera', methods=['POST'])
+def stop_camera():
+    global camera_active, camera
+    camera_active = False
+    # release inmediato por si el generador tarda en notar el flag
+    if camera is not None:
+        camera.release()
+        camera = None
+    return jsonify({'ok': True})
 
 
 # ---------------------------------------------------------------------------
@@ -330,24 +442,19 @@ def database():
 
 
 # ---------------------------------------------------------------------------
-# API — detección principal
+# API — detección principal (para subir imagen)
 # ---------------------------------------------------------------------------
 
 @app.route('/api/detect', methods=['POST'])
 def detect():
     t0 = time.time()
-
     if 'image' not in request.files:
         return jsonify({'error': 'No imagen recibida'}), 400
-
     img = cv2.imdecode(np.frombuffer(request.files['image'].read(), np.uint8), cv2.IMREAD_COLOR)
     if img is None:
         return jsonify({'error': 'Imagen inválida o corrupta'}), 400
-
-    # El cliente puede enviar save_images=false para no guardar en disco
     save_images = request.form.get('save_images', 'true').lower() != 'false'
     source      = request.form.get('source', 'upload')
-
     if model_epp is None and model_person is None:
         return jsonify({
             'warning':       'Modelos no cargados — coloca los .pt en models/',
@@ -357,16 +464,13 @@ def detect():
             'violations':    0,
             'duration_ms':   int((time.time() - t0) * 1000),
         }), 200
-
     dets    = run_inference(img)
     img_out = draw_boxes(img, dets)
     dur     = int((time.time() - t0) * 1000)
     persons = sum(1 for d in dets if d['class_name'] == 'persona')
     viols   = [d for d in dets if d['is_violation']]
-
     in_path_rel  = None
     out_path_rel = None
-
     if save_images:
         ts           = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
         in_path      = os.path.join(UPLOAD_FOLDER, f'in_{ts}.jpg')
@@ -376,11 +480,9 @@ def detect():
         in_path_rel  = f'static/uploads/in_{ts}.jpg'
         out_path_rel = f'static/outputs/out_{ts}.jpg'
     else:
-        # Solo necesitamos el path temporal para generar el base64
         tmp_path = os.path.join(OUTPUT_FOLDER, '_tmp_preview.jpg')
         cv2.imwrite(tmp_path, img_out)
         out_path = tmp_path
-
     ses = Session(
         source        = source,
         image_path    = in_path_rel,
@@ -391,7 +493,6 @@ def detect():
     )
     db.session.add(ses)
     db.session.flush()
-
     for d in dets:
         db.session.add(Detection(
             session_id   = ses.id,
@@ -403,16 +504,11 @@ def detect():
         ))
     for v in viols:
         db.session.add(Alert(session_id=ses.id, alert_type=v['class_name'], severity='danger'))
-
     db.session.commit()
-
     with open(out_path, 'rb') as f:
         b64 = base64.b64encode(f.read()).decode()
-
-    # Borrar temp si no se guardó
     if not save_images and os.path.exists(out_path):
         os.remove(out_path)
-
     return jsonify({
         'session_id':    ses.id,
         'detections':    dets,
@@ -436,7 +532,6 @@ def detections_read():
     estado   = request.args.get('estado', '')
     modelo   = request.args.get('modelo', '')
     conf_min = float(request.args.get('conf_min', 0))
-
     q = Detection.query
     if clase:            q = q.filter(Detection.class_name == clase)
     if estado == 'viol': q = q.filter(Detection.is_violation == True)
@@ -444,16 +539,13 @@ def detections_read():
     if modelo:           q = q.filter(Detection.model_used == modelo)
     if conf_min > 0:     q = q.filter(Detection.confidence >= conf_min)
     q = q.order_by(Detection.id.desc())
-
     total = q.count()
     rows  = q.offset((pagina - 1) * limite).limit(limite).all()
     return jsonify({'total': total, 'pagina': pagina, 'data': [r.to_dict() for r in rows]})
 
-
 @app.route('/api/detections/<int:rid>', methods=['GET'])
 def detection_get(rid):
     return jsonify(Detection.query.get_or_404(rid).to_dict())
-
 
 @app.route('/api/detections', methods=['POST'])
 def detection_create():
@@ -476,7 +568,6 @@ def detection_create():
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-
 @app.route('/api/detections/<int:rid>', methods=['PUT'])
 def detection_update(rid):
     rec = Detection.query.get_or_404(rid)
@@ -490,7 +581,6 @@ def detection_update(rid):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
-
 
 @app.route('/api/detections/<int:rid>', methods=['DELETE'])
 def detection_delete(rid):
@@ -791,7 +881,6 @@ def stats():
         'avg_confidence':    round(float(avg_conf), 4),
     })
 
-
 @app.route('/api/historial')
 def historial_compat():
     tabla = request.args.get('tabla', 'detections')
@@ -803,7 +892,6 @@ def historial_compat():
         args = request.query_string.decode()
         return redirect(f"{REDIRECT[tabla]}?{args}")
     return detections_read()
-
 
 @app.route('/api/metricas')
 def metricas_compat():
@@ -822,7 +910,6 @@ def metricas_compat():
         'recall':    [r.recall    for r in rows],
     })
 
-
 @app.route('/api/config', methods=['GET'])
 def config_compat():
     return models_read()
@@ -830,6 +917,73 @@ def config_compat():
 @app.route('/api/config/<int:cid>', methods=['PUT'])
 def config_update_compat(cid):
     return model_update(cid)
+
+
+# ---------------------------------------------------------------------------
+# Últimos datos para estadísticas y guardado (endpoints adicionales)
+# ---------------------------------------------------------------------------
+
+@app.route('/api/latest_stats')
+def latest_stats():
+    with last_stats_lock:
+        return jsonify(last_stats)
+
+@app.route('/api/save_current', methods=['POST'])
+def save_current():
+    """Guarda el último frame procesado en la base de datos."""
+    global last_frame
+    if last_frame is None:
+        return jsonify({'error': 'No hay frame disponible'}), 400
+
+    save_images = request.json.get('save_images', True) if request.is_json else True
+    source = request.json.get('source', 'camara') if request.is_json else 'camara'
+
+    # Copiar el frame para no interferir con el stream
+    frame_to_save = last_frame.copy()
+
+    # Inferencia (reutiliza run_inference)
+    dets = run_inference(frame_to_save)
+    img_out = draw_boxes(frame_to_save, dets)
+    persons = sum(1 for d in dets if d['class_name'] == 'persona')
+    viols = [d for d in dets if d['is_violation']]
+
+    in_path_rel = None
+    out_path_rel = None
+
+    if save_images:
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+        in_path = os.path.join(UPLOAD_FOLDER, f'in_{ts}.jpg')
+        out_path = os.path.join(OUTPUT_FOLDER, f'out_{ts}.jpg')
+        cv2.imwrite(in_path, frame_to_save)
+        cv2.imwrite(out_path, img_out)
+        in_path_rel = f'static/uploads/in_{ts}.jpg'
+        out_path_rel = f'static/outputs/out_{ts}.jpg'
+
+    ses = Session(
+        source=source,
+        image_path=in_path_rel,
+        output_path=out_path_rel,
+        duration_ms=0,
+        total_persons=persons,
+        total_epp_ok=max(0, persons - len(viols)),
+    )
+    db.session.add(ses)
+    db.session.flush()
+
+    for d in dets:
+        db.session.add(Detection(
+            session_id=ses.id,
+            model_used=d['model_used'],
+            class_name=d['class_name'],
+            confidence=d['confidence'],
+            x1=d['x1'], y1=d['y1'], x2=d['x2'], y2=d['y2'],
+            is_violation=d['is_violation'],
+        ))
+    for v in viols:
+        db.session.add(Alert(session_id=ses.id, alert_type=v['class_name'], severity='danger'))
+
+    db.session.commit()
+    return jsonify({'session_id': ses.id, 'saved': True})
 
 
 # ---------------------------------------------------------------------------
@@ -843,7 +997,6 @@ def seed_db():
             ModelConfig(name='modeloepp_v1', weights_path='models/modeloepp_v1.pt', conf_threshold=0.35, iou_threshold=0.45, img_size=640),
         ])
         db.session.flush()
-
     if TrainingMetric.query.count() == 0:
         epp_model = ModelConfig.query.filter_by(name='modeloepp_v1').first()
         if epp_model:

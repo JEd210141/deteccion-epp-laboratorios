@@ -20,8 +20,6 @@ function dbToast(type, msg, duration = 3500) {
   setTimeout(() => el.remove(), duration);
 }
 
-// -- tabs y sidebar ---------------------------------------------------------
-
 function switchTabla(tabla, el) {
   state.tabla   = tabla;
   state.pagina  = 1;
@@ -45,8 +43,7 @@ function updateSqlBreadcrumb(tabla) {
   if (el) el.innerHTML = `<span class="op">SELECT</span> * <span class="op">FROM</span> <span class="seg">${tabla}</span>`;
 }
 
-// -- filtros ----------------------------------------------------------------
-
+// Filtros dinámicos
 const FILTROS_CONFIG = {
   detections: [
     { id:'f_clase',  type:'select',
@@ -70,12 +67,10 @@ function renderFiltros(tabla) {
   const cfg  = FILTROS_CONFIG[tabla] || [];
   const wrap = document.getElementById('filtrosWrap');
   if (!wrap) return;
-
   if (!cfg.length) {
     wrap.innerHTML = '<span class="db-filter-label">Sin filtros disponibles</span>';
     return;
   }
-
   wrap.innerHTML = '<span class="db-filter-label">WHERE</span>' + cfg.map(f => {
     if (f.type === 'select') {
       const opts = f.options.map((v, i) =>
@@ -83,8 +78,7 @@ function renderFiltros(tabla) {
       ).join('');
       return `<select class="db-inp" id="${f.id}" onchange="applyFiltros()">${opts}</select>`;
     }
-    return `<input class="db-inp" id="${f.id}" type="number" placeholder="${f.label}"
-      step="${f.step||'0.01'}" oninput="applyFiltros()"/>`;
+    return `<input class="db-inp" id="${f.id}" type="number" placeholder="${f.label}" step="${f.step||'0.01'}" oninput="applyFiltros()"/>`;
   }).join('') + `<button class="db-btn" onclick="clearFiltros()">✕</button>`;
 }
 
@@ -105,8 +99,7 @@ function clearFiltros() {
   state.filtros = {}; state.pagina = 1; loadTabla();
 }
 
-// -- endpoints --------------------------------------------------------------
-
+// Endpoints
 const ENDPOINT = {
   detections:       '/api/detections',
   sessions:         '/api/sessions',
@@ -115,26 +108,20 @@ const ENDPOINT = {
   model_config:     '/api/models',
 };
 
-// -- read -------------------------------------------------------------------
-
 async function loadTabla() {
   const ep     = ENDPOINT[state.tabla];
   const params = new URLSearchParams({ pagina:state.pagina, limite:PAGE_SIZE, ...state.filtros });
-
   const tbody = document.getElementById('tblBody');
   const thead = document.getElementById('tblHead');
   if (tbody) tbody.innerHTML = `<tr class="db-loading-row"><td colspan="20"><div class="db-loading"></div> Consultando MariaDB...</td></tr>`;
-
   try {
     const data = await EPP.apiFetch(`${ep}?${params}`);
     const rows = data.data || [];
     state.total = data.total ?? rows.length;
-
     updateStatusBar(state.total);
     renderDbTable(rows, thead, tbody);
     renderDbPagination(state.total, state.pagina);
     updateSideCount(state.tabla, state.total);
-
   } catch (e) {
     if (tbody) tbody.innerHTML = `<tr class="db-loading-row"><td colspan="20" style="color:var(--db-red);">⚠ ${e.message}</td></tr>`;
     dbToast('err', `Error MariaDB: ${e.message}`);
@@ -147,7 +134,6 @@ function renderDbTable(rows, thead, tbody) {
     if (tbody) tbody.innerHTML = `<tr><td colspan="20"><div class="db-empty"><div class="db-empty-icon">⊘</div>Sin registros en ${state.tabla}</div></td></tr>`;
     return;
   }
-
   const cols = Object.keys(rows[0]);
   if (thead) thead.innerHTML = cols.map(c => `<th>${c.toUpperCase()}</th>`).join('') + '<th>ACTIONS</th>';
   if (tbody) tbody.innerHTML = rows.map(r => {
@@ -157,8 +143,7 @@ function renderDbTable(rows, thead, tbody) {
       if (c === 'severity')     return `<td><span class="db-pill ${v==='danger'?'danger':'warn'}">${v||'—'}</span></td>`;
       if (c === 'resolved')     return `<td><span class="db-pill ${v?'ok':'warn'}">${v?'Resuelto':'Pendiente'}</span></td>`;
       if (c === 'source')       return `<td><span class="db-pill info">${v||'—'}</span></td>`;
-      if (c === 'class_name' || c === 'alert_type')
-        return `<td><span class="db-pill ${v?.startsWith('no_')?'danger':'ok'}">${v||'—'}</span></td>`;
+      if (c === 'class_name' || c === 'alert_type') return `<td><span class="db-pill ${v?.startsWith('no_')?'danger':'ok'}">${v||'—'}</span></td>`;
       if (v === null || v === undefined) return `<td><span class="db-null">NULL</span></td>`;
       if (typeof v === 'number') return `<td><span class="db-num">${v}</span></td>`;
       return `<td style="font-family:var(--db-mono);font-size:11px;">${v}</td>`;
@@ -191,8 +176,7 @@ function updateSideCount(tabla, total) {
   if (el) el.textContent = total;
 }
 
-// -- formulario -------------------------------------------------------------
-
+// Formulario
 const FORM_FIELDS = {
   detections: [
     { id:'session_id',   label:'session_id *',  type:'number', required:true },
@@ -203,10 +187,8 @@ const FORM_FIELDS = {
       required:true },
     { id:'confidence',   label:'confidence *',  type:'number', step:'0.001', min:'0', max:'1', required:true },
     { id:'is_violation', label:'is_violation',  type:'select', options:['0','1'], labels:['No (EPP OK)','Sí (violación)'] },
-    { id:'x1', label:'x1', type:'number' },
-    { id:'y1', label:'y1', type:'number' },
-    { id:'x2', label:'x2', type:'number' },
-    { id:'y2', label:'y2', type:'number' },
+    { id:'x1', label:'x1', type:'number' }, { id:'y1', label:'y1', type:'number' },
+    { id:'x2', label:'x2', type:'number' }, { id:'y2', label:'y2', type:'number' },
     { id:'person_id', label:'person_id', type:'number' },
   ],
   sessions: [
@@ -246,11 +228,7 @@ const FORM_FIELDS = {
   ],
 };
 
-function openCreate() {
-  state.editId = null;
-  renderForm(state.tabla, null);
-  showForm(false);
-}
+function openCreate() { state.editId = null; renderForm(state.tabla, null); showForm(false); }
 
 async function openEdit(id) {
   const ep = ENDPOINT[state.tabla];
@@ -265,11 +243,9 @@ async function openEdit(id) {
 function renderForm(tabla, data) {
   const fields = FORM_FIELDS[tabla] || [];
   let html = '<div class="db-form-grid">';
-
   fields.forEach(f => {
     const val  = data ? (data[f.id] ?? '') : '';
     const full = f.full || f.type === 'textarea' ? 'db-form-full' : '';
-
     if (f.type === 'select') {
       const opts = f.options.map((o, i) =>
         `<option value="${o}" ${String(val)===String(o)?'selected':''}>${f.labels?f.labels[i]:(o||'— seleccionar —')}</option>`
@@ -291,7 +267,6 @@ function renderForm(tabla, data) {
       </div>`;
     }
   });
-
   html += '</div>';
   EPP.setHTML('formFields', html);
   updateSqlPreview();
@@ -351,26 +326,20 @@ function hideForm() {
   state.editId = null;
 }
 
-// -- submit -----------------------------------------------------------------
-
 async function submitForm() {
   const fields   = FORM_FIELDS[state.tabla] || [];
   const required = fields.filter(f => f.required).map(f => `frm_${f.id}`);
   let valid = true;
-
   required.forEach(id => {
     const el = document.getElementById(id);
     if (!el?.value) { el?.classList.add('err'); valid = false; }
     else             el?.classList.remove('err');
   });
-
   if (!valid) { dbToast('err', 'Completa los campos obligatorios (*)'); return; }
-
   const ep      = ENDPOINT[state.tabla];
   const payload = getFormPayload();
   const isEdit  = state.editId !== null;
   const url     = isEdit ? `${ep}/${state.editId}` : ep;
-
   try {
     const data = await EPP.apiFetch(url, { method:isEdit?'PUT':'POST', body:JSON.stringify(payload) });
     if (data.error) throw new Error(data.error);
@@ -380,8 +349,6 @@ async function submitForm() {
     loadStats();
   } catch (e) { dbToast('err', `Error: ${e.message}`); }
 }
-
-// -- delete -----------------------------------------------------------------
 
 function confirmDelete(id, label) {
   const modal = document.getElementById('deleteModal');
@@ -396,10 +363,7 @@ function confirmDelete(id, label) {
   modal.dataset.id    = id;
 }
 
-function cancelDelete() {
-  const modal = document.getElementById('deleteModal');
-  if (modal) modal.style.display = 'none';
-}
+function cancelDelete() { const modal = document.getElementById('deleteModal'); if (modal) modal.style.display = 'none'; }
 
 async function executeDelete() {
   const modal = document.getElementById('deleteModal');
@@ -415,8 +379,6 @@ async function executeDelete() {
   } catch (e) { dbToast('err', `Error: ${e.message}`); }
 }
 
-// -- stats ------------------------------------------------------------------
-
 async function loadStats() {
   try {
     const s = await EPP.apiFetch('/api/stats');
@@ -426,10 +388,8 @@ async function loadStats() {
     EPP.setText('stAvgConf',    s.avg_confidence);
     EPP.setText('stAlerts',     s.total_alerts);
     EPP.setText('stUnresolved', s.unresolved_alerts);
-  } catch { /* silencioso si no hay conexión */ }
+  } catch { /* silencioso */ }
 }
-
-// -- export -----------------------------------------------------------------
 
 async function exportCSV() {
   const ep = ENDPOINT[state.tabla];
@@ -446,8 +406,6 @@ async function exportCSV() {
     dbToast('ok', `${state.tabla}.csv exportado`);
   } catch { dbToast('err', 'Error exportando CSV'); }
 }
-
-// -- init -------------------------------------------------------------------
 
 document.addEventListener('DOMContentLoaded', () => {
   renderFiltros('detections');

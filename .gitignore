@@ -43,6 +43,7 @@ node_modules/
 *.ipynb
 
 # Project specific - DATA and MODELS
+backup/
 /data/
 data_person/
 /evaluation_results/

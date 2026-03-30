@@ -2,8 +2,6 @@ window.EPP = {
 
   API: '',
 
-  // -- tema ------------------------------------------------------------------
-
   theme: {
     _mq: window.matchMedia('(prefers-color-scheme: dark)'),
 
@@ -11,8 +9,6 @@ window.EPP = {
       const saved  = localStorage.getItem('epp-theme');
       const system = this._mq.matches ? 'dark' : 'light';
       this._apply(saved || system);
-
-      // solo seguir el sistema si el usuario no eligió manualmente
       this._mq.addEventListener('change', e => {
         if (!localStorage.getItem('epp-theme')) {
           this._apply(e.matches ? 'dark' : 'light');
@@ -44,8 +40,6 @@ window.EPP = {
     },
   },
 
-  // -- toasts ----------------------------------------------------------------
-
   toast(type, msg, duration = 3500) {
     const container = document.getElementById('toasts');
     if (!container) return;
@@ -55,8 +49,6 @@ window.EPP = {
     container.appendChild(el);
     setTimeout(() => el.remove(), duration);
   },
-
-  // -- helpers de render -----------------------------------------------------
 
   badge(val, type) {
     if (val === null || val === undefined) return `<span class="pill gray">—</span>`;
@@ -72,18 +64,14 @@ window.EPP = {
     const head = document.getElementById(headId);
     const body = document.getElementById(bodyId);
     if (!head || !body) return;
-
     if (!rows.length) {
       head.innerHTML = '<th>—</th>';
       body.innerHTML = `<tr><td colspan="20" class="tbl-empty">Sin registros</td></tr>`;
       return;
     }
-
     const cols = Object.keys(rows[0]);
-    head.innerHTML =
-      cols.map(c => `<th>${c.toUpperCase()}</th>`).join('') +
+    head.innerHTML = cols.map(c => `<th>${c.toUpperCase()}</th>`).join('') +
       (actions ? '<th>ACCIONES</th>' : '');
-
     body.innerHTML = rows.map(r => {
       const cells = cols.map(c => {
         const v = r[c];
